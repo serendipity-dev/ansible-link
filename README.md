@@ -18,6 +18,7 @@
 ## Features
 - **Playbook Execution** Asynchronous playbook executions with real-time status updates.
 - **Playbook History** Keep track of playbook executions and their status.
+- **Playbook History** Keep track of playbook executions and their status, including incremental progress logs captured from ansible-runner callbacks.
 - **API Documentation** Swagger UI documentation for easy exploration of the API endpoints.
 - **Metrics** Exposes Prometheus metrics for playbook runs, durations, and active jobs.
 - **Webhook Notifications** Send notifications to Slack, Discord, or custom webhooks for job events.
@@ -69,7 +70,50 @@ The API documentation is available via the Swagger UI.
 * <code>GET /ansible/jobs: List all jobs</code>
 * <code>GET /ansible/job/<job_id>: Get job status</code>
 * <code>GET /ansible/job/<job_id>/output: Get job output</code>
+* <code>GET /ansible/job/<job_id>/output: Get combined live output, progress events, and any structured <code>result</code> emitted via set_stats at completion</code>
+* <code>GET /ansible/job/<job_id>/progress: Retrieve only the tracked progress snapshot and the filtered progress events</code>
+* <code>GET /ansible/job/<job_id>/result: Retrieve only the final structured result captured via <code>set_stats</code></code>
 * <code>GET /health: Health check endpoint</code>
+
+### Standard progress markers for roles
+To avoid mixing noise with progress updates, Ansible-Link filters structured progress events emitted on stdout.
+
+- Prefix progress lines with the marker `[AL_PROGRESS <phase>]` where `<phase>` is `start`, `step`, `done`, or `error`.
+- Append space-separated `key=value` pairs. Numbers are parsed as integers; quoted strings are preserved. JSON payloads are also parsed when provided as compact JSON (or quoted) values.
+- The API aggregates these markers and stores them under `job.progress`, which is returned by `GET /ansible/job/<job_id>/output` together with the raw `events` list and can be queried alone via `GET /ansible/job/<job_id>/progress`.
+- Standard parameters:
+  - `start`: `expected_total=<int>` (numero di step previsti), `expected_weight=<int>` (peso totale previsto), `label="..."` opzionale.
+  - `step`: `weight=<int>` per il peso dello step corrente, `label="..."` opzionale.
+  - `done|error`: `label="..."` opzionale. Gli output finali strutturati non si passano più via marker `done`, ma tramite `set_stats` (vedi sotto).
+
+Suggested events for a task with 3 steps:
+
+```yaml
+- name: announce job start with total steps
+  ansible.builtin.debug:
+    msg: "[AL_PROGRESS start] expected_total=3 expected_weight=3 label=\"Deploy stack\""
+
+- name: do step one
+  ansible.builtin.shell: ./step1.sh
+- name: step one done
+  ansible.builtin.debug:
+    msg: "[AL_PROGRESS step] weight=1 label=\"Step 1 completed\""
+
+# ...repeat for steps 2 and 3...
+
+- name: all done
+  ansible.builtin.debug:
+    msg: "[AL_PROGRESS done] label=\"Deployment finished\""
+
+# emit structured result via set_stats
+- name: publish final structured result
+  ansible.builtin.set_stats:
+    data:
+      endpoint: "https://app.example.com"
+      version: "1.2.3"
+```
+
+If a fatal condition occurs, emit `[AL_PROGRESS error] label="reason"` before failing the task to update the tracked phase.
 
 ## Configuration
 The API configuration is stored in the `config.yml` file. 
@@ -375,6 +419,11 @@ Ansible-Link will save each job as .json with the following info (from ansible-r
 essentially showing everything ansible-playbook would display.
 
 <b>Note</b> After submitting a request to the API, you will receive a job ID. You can use this job ID to check the status and retrieve the output of the playbook run using the /ansible/job/<job_id> and /ansible/job/<job_id>/output endpoints respectively.
+<b>Note</b> After submitting a request to the API, you will receive a job ID. You can use this job ID to check the status and retrieve the output of the playbook run using the /ansible/job/<job_id> and /ansible/job/<job_id>/output endpoints respectively; use /ansible/job/<job_id>/progress or /ansible/job/<job_id>/result if you only need the progress snapshot or the final structured payload.
+
+### How progress events are captured
+- `ansible-runner` invokes an `event_handler` on every event; when `stdout` is present the handler stores the line together with `event`, `counter`, `uuid` and the timestamp under the job's `events` array. 【F:src/ansible_link.py†L193-L238】【F:src/job_storage.py†L18-L35】
+- Roles/playbooks do not need special APIs: any text printed to stdout (e.g. `ansible.builtin.debug: msg=...`, `set_stats`, assertions) becomes a progress event visible via `GET /ansible/job/<job_id>/output`. Use `GET /ansible/job/<job_id>/progress` when the client needs only the progress snapshot and progress-tagged events, or `GET /ansible/job/<job_id>/result` to fetch solely the final structured outcome. Emit concise, frequent messages in key tasks to surface meaningful progress.
 
 ## Metrics
 Ansible-Link exposes the following metrics:
