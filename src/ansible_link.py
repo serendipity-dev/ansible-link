@@ -171,27 +171,29 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
         def _parse_progress(stdout_line: str):
             if not stdout_line:
                 return None
-            marker_match = re.match(r"\[AL_PROGRESS (?P<phase>start|step|done|error)](?P<args>.*)", stdout_line.strip())
-            if not marker_match:
-                return None
-
-            progress = {
-                'phase': marker_match.group('phase'),
-            }
-            args_section = marker_match.group('args').strip()
-            for token in shlex.split(args_section):
-                if '=' not in token:
+            for line in stdout_line.splitlines():
+                marker_match = re.search(r"\[AL_PROGRESS (?P<phase>start|step|done|error)](?P<args>.*)", line.strip())
+                if not marker_match:
                     continue
-                key, value = token.split('=', 1)
-                if isinstance(value, str) and value.isdigit():
-                    value = int(value)
-                elif isinstance(value, str) and (value.startswith('{') or value.startswith('[')):
-                    try:
-                        value = json.loads(value)
-                    except json.JSONDecodeError:
-                        pass
-                progress[key] = value
-            return progress
+                          
+                progress = {
+                    'phase': marker_match.group('phase'),
+                }
+                args_section = marker_match.group('args').strip()
+                for token in shlex.split(args_section):
+                    if '=' not in token:
+                        continue
+                    key, value = token.split('=', 1)
+                    if isinstance(value, str) and value.isdigit():
+                        value = int(value)
+                    elif isinstance(value, str) and (value.startswith('{') or value.startswith('[')):
+                        try:
+                            value = json.loads(value)
+                        except json.JSONDecodeError:
+                            pass
+                    progress[key] = value
+                return progress
+            return None
 
         def event_handler(event_data):
             if not event_data:
