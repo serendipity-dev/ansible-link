@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  ansible-link:
+    build: .
+    ports:
+      - "5001:5001"
+      - "9090:9090"
+    environment:
+      - ANSIBLE_LINK_CONFIG_PATH=/app/src/config.yml
+    volumes:
+      - ansible_link_job_storage:/app/job-storage
+    restart: unless-stopped
+
+volumes:
+  ansible_link_job_storage:
+    driver: local
