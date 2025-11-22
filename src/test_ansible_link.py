@@ -40,7 +40,8 @@ class TestAnsibleLink(unittest.TestCase):
         payload = {
             'playbook': 'test_playbook.yml',
             'inventory': 'test_inventory.ini',
-            'vars': {'test_var': 'test_value'}
+            'vars': {'test_var': 'test_value'},
+            'job_tag': 'unittest'
         }
         response = self.client.post(f'{API_PATH}/ansible/playbook', json=payload)
         self.assertEqual(response.status_code, 202)
@@ -53,7 +54,8 @@ class TestAnsibleLink(unittest.TestCase):
         payload = {
             'playbook': 'test_playbook.yml',
             'inventory': 'test_inventory.ini',
-            'vars': {'test_var': 'test_value'}
+            'vars': {'test_var': 'test_value'},
+            'job_tag': 'unittest'
         }
         response = self.client.post(f'{API_PATH}/ansible/playbook', json=payload)
         self.assertEqual(response.status_code, 202)
@@ -77,7 +79,13 @@ class TestAnsibleLink(unittest.TestCase):
         jobs_data = json.loads(response.data)
         
         self.assertIn(job_id, jobs_data, f"Job {job_id} not found in jobs list")
-        
+
+        response = self.client.get(f'{API_PATH}/ansible/jobs?tag=unittest')
+        self.assertEqual(response.status_code, 200, "Failed to retrieve tagged jobs")
+        tagged_jobs = json.loads(response.data)
+        self.assertIn(job_id, tagged_jobs, "Tagged job missing from filtered results")
+        self.assertEqual(tagged_jobs[job_id]['job_tag'], 'unittest', "Job tag not preserved in listing")
+
         max_wait_time = 10
         wait_interval = 1
         elapsed_time = 0
@@ -97,6 +105,8 @@ class TestAnsibleLink(unittest.TestCase):
         expected_keys = ['status', 'playbook', 'inventory', 'vars', 'start_time', 'ansible_cli_command']
         for key in expected_keys:
             self.assertIn(key, job_data, f"Expected key '{key}' not found in job data")
+
+        self.assertEqual(job_data.get('job_tag'), 'unittest', "Job tag not stored in job data")
         
         # check keys using file on disk
         with open(job_file_path, 'r') as f:
@@ -104,6 +114,8 @@ class TestAnsibleLink(unittest.TestCase):
         for key in expected_keys:
             self.assertIn(key, file_data, f"Expected key '{key}' not found in job file")
 
+        self.assertEqual(file_data.get('job_tag'), 'unittest', "Job tag not stored in job file")
+        
     def test_available_playbooks_endpoint(self):
         response = self.client.get(f'{API_PATH}/ansible/available-playbooks')
         self.assertEqual(response.status_code, 200)
