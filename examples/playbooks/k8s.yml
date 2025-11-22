@@ -22,7 +22,7 @@
 
   tasks:
     - ansible.builtin.debug:
-        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Cluster {{ cluster_name }}\""
+        msg: '[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label="Cluster {{ cluster_name }}"'
 
     - ansible.builtin.set_fact: { _issued_weight: 0 }
 
@@ -72,7 +72,7 @@
               token: "sha256~{{ 999999999 | random }}"
 
     - ansible.builtin.debug:
-        msg: "[AL_PROGRESS done] label=\"Cluster pronto\""
+        msg: '[AL_PROGRESS done] label="Cluster pronto"'
 
     - ansible.builtin.set_stats:
         data:
