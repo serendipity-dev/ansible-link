@@ -105,7 +105,113 @@ Runner -> WH: job_completed/job_error
 Runner -> PM: ACTIVE_JOBS--
 @enduml
 ```
+## Esempi d'uso dell'API con i playbook demo
+Gli endpoint sono esposti con prefisso `/api/v2/ansible` (versione ricavata da `src/version.py`). Gli esempi seguenti usano `BASE_URL=http://localhost:5001/api/v2/ansible` e l'inventory di default incluso (`examples/inventory/hosts`).
 
+### Playbook disponibili e parametri attesi
+Use `GET $BASE_URL/available-playbooks` per verificare i playbook caricati. 【F:src/ansible_link.py†L427-L440】
+
+| Playbook | Variabili funzionali (da passare in `vars`) | Risultato finale (da `set_stats`) |
+| --- | --- | --- |
+| `playbooks/bootstrap_tenant.yml` | `tenant_name` (nome tenant) 【F:examples/playbooks/bootstrap_tenant.yml†L5-L17】 | ID tenant e URL degli endpoint di automazione 【F:examples/playbooks/bootstrap_tenant.yml†L66-L79】 |
+| `playbooks/cost_report.yml` | `start`, `end` (intervallo ISO8601), `resources` (lista opzionale di tipi: `vps`, `k8s`, `nstar`) 【F:examples/playbooks/cost_report.yml†L5-L18】【F:examples/playbooks/cost_report.yml†L41-L69】 | Totale costi e dettaglio per categoria + items filtrati 【F:examples/playbooks/cost_report.yml†L71-L80】 |
+| `playbooks/vps.yml` | `hostname`, `cpu`, `memory_gb`, `image`, `network` 【F:examples/playbooks/vps.yml†L5-L22】 | URL/IP della VPS e credenziali admin generate 【F:examples/playbooks/vps.yml†L56-L64】 |
+| `playbooks/nstar.yml` | `tenant`, `app_size` 【F:examples/playbooks/nstar.yml†L5-L18】 | URL servizio, tenant e credenziali admin 【F:examples/playbooks/nstar.yml†L41-L55】 |
+| `playbooks/k8s.yml` | `cluster_name`, `version`, `workers`, `worker_flavor` 【F:examples/playbooks/k8s.yml†L5-L22】 | URL API, kubeconfig e credenziali admin del cluster 【F:examples/playbooks/k8s.yml†L44-L76】 |
+
+_Nota_: le variabili `_total_weight`, `min_wait`, `max_wait` e `steps` servono solo per la demo/progress e non vanno specificate dai client.
+
+### Avvio di un job (POST /playbook)
+L'endpoint `POST $BASE_URL/playbook` accetta il playbook, l'inventory (opzionale) e le variabili. Restituisce `202` con `job_id` per il polling. 【F:src/ansible_link.py†L297-L353】
+
+Esempi di payload reali (uno per ciascun playbook):
+
+```bash
+curl -X POST "$BASE_URL/playbook" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "playbook": "playbooks/bootstrap_tenant.yml",
+        "vars": { "tenant_name": "acme-app" }
+      }'
+
+curl -X POST "$BASE_URL/playbook" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "playbook": "playbooks/cost_report.yml",
+        "vars": {
+          "start": "2025-02-01T00:00:00Z",
+          "end": "2025-02-28T23:59:59Z",
+          "resources": ["vps", "k8s"]
+        }
+      }'
+
+curl -X POST "$BASE_URL/playbook" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "playbook": "playbooks/vps.yml",
+        "vars": {
+          "hostname": "app-01",
+          "cpu": 4,
+          "memory_gb": 8,
+          "image": "ubuntu-22",
+          "network": "dmz"
+        }
+      }'
+
+curl -X POST "$BASE_URL/playbook" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "playbook": "playbooks/nstar.yml",
+        "vars": { "tenant": "finance", "app_size": "medium" }
+      }'
+
+curl -X POST "$BASE_URL/playbook" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "playbook": "playbooks/k8s.yml",
+        "vars": {
+          "cluster_name": "lab-cluster",
+          "version": "1.29",
+          "workers": 5,
+          "worker_flavor": "medium"
+        }
+      }'
+```
+
+La risposta tipica: `{ "job_id": "<UUID>", "status": "running", "errors": null }`.
+
+### Monitoraggio e consultazione
+- **Lista job recenti**: `GET $BASE_URL/jobs` restituisce ID, stato e playbook correnti. 【F:src/ansible_link.py†L355-L359】
+- **Dettaglio stato**: `GET $BASE_URL/job/<job_id>` riporta metadata, progress, eventi e result salvati. 【F:src/ansible_link.py†L360-L369】
+- **Solo output e log evento**: `GET $BASE_URL/job/<job_id>/output` aggrega stdout/stderr, eventi, progress e result. 【F:src/ansible_link.py†L369-L390】
+- **Solo avanzamento**: `GET $BASE_URL/job/<job_id>/progress` restituisce fase corrente e soli eventi di progresso (`[AL_PROGRESS ...]`). 【F:src/ansible_link.py†L393-L410】
+- **Solo risultato finale**: `GET $BASE_URL/job/<job_id>/result` ritorna il payload pubblicato via `set_stats` dal playbook (es. ID tenant, kubeconfig, ecc.). 【F:src/ansible_link.py†L412-L425】
+
+Esempio di polling minimal:
+
+```bash
+JOB_ID=<UUID_RICEVUTO>
+
+# Stato sintetico
+curl "$BASE_URL/job/$JOB_ID"
+
+# Output + avanzamento live
+curl "$BASE_URL/job/$JOB_ID/output"
+
+# Solo avanzamento (per progress bar)
+curl "$BASE_URL/job/$JOB_ID/progress"
+
+# Risultato finale strutturato (una volta completato)
+curl "$BASE_URL/job/$JOB_ID/result"
+```
+
+Quando il playbook termina, `progress.phase` diventa `done` (o `error`) e `result` contiene gli artifact specifici del job, come ad esempio:
+- `bootstrap_tenant.yml`: `{ "tenant": { "id": "<id>" }, "automations": { "urls": { ... } } }` 【F:examples/playbooks/bootstrap_tenant.yml†L66-L79】
+- `cost_report.yml`: `{ "summary": { "total": <float>, "byCategory": {...} }, "items": [...] }` 【F:examples/playbooks/cost_report.yml†L71-L80】
+- `vps.yml`: `{ "vps": { "url": "https://app-01.example.local", "ip": "..." }, "admin": {...} }` 【F:examples/playbooks/vps.yml†L56-L64】
+- `nstar.yml`: `{ "nstar": { "url": "https://nstar.example.local/<tenant>" }, "tenant": "...", "admin": {...} }` 【F:examples/playbooks/nstar.yml†L41-L55】
+- `k8s.yml`: `{ "cluster": { "name": "lab-cluster", "url": "..." }, "admin": {...}, "kubeconfig": "..." }` 【F:examples/playbooks/k8s.yml†L44-L76】
+  
 ## Considerazioni su funzionalità mancanti o migliorabili
 - **Endpoint per output live**: oltre a `GET /ansible/job/<job_id>/output`, sono disponibili endpoint dedicati per progresso (`/progress`) e risultato (`/result`); ulteriori estensioni potrebbero includere streaming SSE/WebSocket. 【F:src/ansible_link.py†L306-L346】
 - **Coda/pool di esecuzione**: non esistono limiti di concorrenza o meccanismi di scheduling; introdurre un worker pool o una coda permetterebbe di controllare il carico. 【F:src/ansible_link.py†L259-L274】
