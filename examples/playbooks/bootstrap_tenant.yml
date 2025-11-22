@@ -26,6 +26,10 @@
         _issued_weight: 0
 
     - name: Esegui fasi bootstrap con attese e pesi
+    - name: Calcola pesi e attese per le fasi
+      ansible.builtin.set_fact:
+        _steps_expanded: "{{ (_steps_expanded | default([])) + [ {'name': item.name, 'weight': _step_weight, 'wait': _step_wait, 'idx': idx} ] }}"
+        _issued_weight: "{{ _issued_weight + _step_weight }}"
       loop: "{{ steps }}"
       loop_control:
         label: "{{ item.name }}"
@@ -50,6 +54,10 @@
                   _step_weight_pre
                 )) | int
               }}
+      vars:
+        _step_wait: "{{ (range(min_wait, max_wait + 1) | random) | int }}"
+        _step_weight_pre: "{{ ((item.p * _total_weight) / 100.0) | float | round(0, 'floor') | int }}"
+        _step_weight: "{{ (idx == (steps|length - 1)) | ternary(_total_weight - _issued_weight, _step_weight_pre) | int }}"
 
         - name: Emissione progresso step
           ansible.builtin.debug:
@@ -58,6 +66,16 @@
         - name: Aggiorna accumulatore
           ansible.builtin.set_fact:
             _issued_weight: "{{ (_issued_weight | int) + (_step_weight | int) }}"
+    - name: Esegui fasi bootstrap con attese e pesi
+      ansible.builtin.shell: |
+        echo "➡️  {{ item.name }}"
+        sleep {{ item.wait }}
+        echo "[AL_PROGRESS step] weight={{ item.weight }} label=\"{{ item.name }}\""
+      args:
+        executable: /bin/sh
+      loop: "{{ _steps_expanded | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
 
     - name: Completato
       ansible.builtin.debug:
