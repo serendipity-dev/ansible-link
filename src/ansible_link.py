@@ -155,6 +155,7 @@ def validate_playbook_request(data, config):
 def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity=0, limit=None, tags=None, skip_tags=None, cmdline=None):
     ACTIVE_JOBS.inc()
     start_time = datetime.now()
+    ansible_command = ''
 
     webhook_sender.send("job_started", {
         "job_id": job_id,
@@ -186,7 +187,7 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
 
         runner_config.prepare()
 
-        runner = ansible_runner.Runner(config=runner_config)
+        runner = ansible_runner.Runner(config=runner_config, event_handler=event_handler)
         ansible_command = ' '.join(runner.config.command)
         logger.info(f"Runner: {ansible_command}")
 
@@ -251,7 +252,7 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
 
                 job_storage.append_job_event(job_id, event_payload)
 
-        result = runner.run(event_handler=event_handler)
+        result = runner.run()
 
         logger.debug(f"Runner result: {result}")
 
@@ -279,7 +280,7 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
         logger.error(f"Error in job {job_id}: {str(e)}")
         job_storage.update_job_status(job_id, 'error')
         job_storage.update_job_progress(job_id, 'error')
-        job_storage.save_job_output(job_id, '', str(e), {})
+        job_storage.save_job_output(job_id, '', str(e), {}, ansible_command)
 
         PLAYBOOK_RUNS.labels(playbook=playbook_path, status='error').inc()
 
