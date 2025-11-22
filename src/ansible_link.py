@@ -175,7 +175,7 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
                 marker_match = re.search(r"\[AL_PROGRESS (?P<phase>start|step|done|error)](?P<args>.*)", line.strip())
                 if not marker_match:
                     continue
-                          
+
                 progress = {
                     'phase': marker_match.group('phase'),
                 }
@@ -193,6 +193,24 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
                             pass
                     progress[key] = value
                 return progress
+            return None
+
+        def _extract_stats_payload(event_data: dict):
+            event_data_section = event_data.get('event_data', {}) if event_data else {}
+            res = event_data_section.get('res', {})
+            if not isinstance(res, dict):
+                return None
+
+            stats_blocks = [
+                res.get('ansible_facts', {}).get('ansible_stats'),
+                res.get('ansible_stats'),
+            ]
+            for stats in stats_blocks:
+                if isinstance(stats, dict) and 'data' in stats:
+                    return stats.get('data')
+
+            if 'data' in res:
+                return res.get('data')
             return None
 
         def event_handler(event_data):
@@ -220,14 +238,9 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
                         step_weight=progress_payload.get('weight')
                     )
 
-                if event_data.get('event') == 'set_stats':
-                    stats_result = event_data.get('event_data', {}).get('res', {})
-                    if isinstance(stats_result, dict):
-                        payload = stats_result.get('ansible_facts', {}).get('ansible_stats', {}).get('data')
-                        payload = payload if payload is not None else stats_result.get('ansible_stats', {}).get('data')
-                        payload = payload if payload is not None else stats_result.get('data')
-                        if payload is not None:
-                            job_storage.update_job_result(job_id, payload)
+                stats_payload = _extract_stats_payload(event_data)
+                if stats_payload is not None:
+                    job_storage.update_job_result(job_id, stats_payload)
 
                 job_storage.append_job_event(job_id, event_payload)
 
