@@ -1,0 +1,65 @@
+---
+- name: Provisioning VPS (mock con progress e pesi)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    hostname: "vps-demo"
+    cpu: 2
+    memory_gb: 4
+    image: "ubuntu-22"
+    network: "dmz"
+
+    _total_weight: 1600            # totale specifico per VPS
+    min_wait: 5
+    max_wait: 10
+
+    # 5 step: 10% + 35% + 15% + 20% + 20%
+    steps:
+      - { name: "Validazione parametri",      p: 10 }
+      - { name: "Allocazione compute",        p: 35 }
+      - { name: "Attach storage",             p: 15 }
+      - { name: "Configurazione rete",        p: 20 }
+      - { name: "Bootstrap OS & hardening",   p: 20 }
+
+  tasks:
+    - name: Inizio progresso
+      ansible.builtin.debug:
+        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Provisioning VPS {{ hostname }}\""
+
+    - name: Inizializza accumulatore
+      ansible.builtin.set_fact: { _issued_weight: 0 }
+
+    - name: Fasi VPS
+      loop: "{{ steps }}"
+      loop_control: { label: "{{ item.name }}", index_var: idx }
+      block:
+        - ansible.builtin.debug: { msg: "➡️  {{ item.name }}" }
+        - ansible.builtin.pause: { seconds: "{{ (range(min_wait, max_wait + 1) | random) | int }}" }
+        - ansible.builtin.set_fact:
+            _step_weight_pre: "{{ ((item.p * _total_weight) / 100.0) | float | round(0, 'floor') | int }}"
+            _is_last: "{{ idx == (steps|length - 1) }}"
+            _step_weight: "{{ (_is_last | ternary((_total_weight - _issued_weight), _step_weight_pre)) | int }}"
+        - ansible.builtin.debug:
+            msg: "[AL_PROGRESS step] weight={{ _step_weight }} label=\"{{ item.name }}\""
+        - ansible.builtin.set_fact:
+            _issued_weight: "{{ (_issued_weight | int) + (_step_weight | int) }}"
+
+    - name: Dati fittizi
+      ansible.builtin.set_fact:
+        _octet: "{{ 10 + (999 | random) }}"
+        _admin_user: "admin"
+        _admin_pass: "P@ss-{{ 9999 | random }}"
+
+    - ansible.builtin.debug:
+        msg: "[AL_PROGRESS done] label=\"VPS pronto\""
+
+    - name: Artifacts finali
+      ansible.builtin.set_stats:
+        data:
+          vps:
+            url: "https://{{ hostname }}.example.local"
+            ip: "203.0.113.{{ _octet }}"
+          admin:
+            user: "{{ _admin_user }}"
+            password: "{{ _admin_pass }}"
+        per_host: false
