@@ -19,7 +19,7 @@
   tasks:
     - name: Segnala inizio progresso
       ansible.builtin.debug:
-        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Bootstrap tenant {{ tenant_name }}\""
+        msg: '[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label="Bootstrap tenant {{ tenant_name }}"'
 
     - name: Inizializza accumulatore peso emesso
       ansible.builtin.set_fact:
@@ -51,7 +51,7 @@
 
     - name: Completato
       ansible.builtin.debug:
-        msg: "[AL_PROGRESS done] label=\"Bootstrap completato\""
+        msg: '[AL_PROGRESS done] label="Bootstrap completato"'
 
     - name: Artifacts finali
       ansible.builtin.set_fact:
