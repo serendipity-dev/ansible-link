@@ -168,29 +168,6 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
         job_private_data_dir = job_storage_dir / job_id
         job_private_data_dir.mkdir(parents=True, exist_ok=True)
 
-        runner_config = RunnerConfig(
-            private_data_dir=str(job_private_data_dir),
-            playbook=playbook_path,
-            inventory=inventory_path,
-            extravars=vars,
-            limit=limit,
-            verbosity=verbosity,
-            forks=forks,
-            tags=tags,
-            skip_tags=skip_tags,
-            cmdline=cmdline,
-            suppress_ansible_output=config.get('suppress_ansible_output', False),
-            omit_event_data=config.get('omit_event_data', False),
-            only_failed_event_data=config.get('only_failed_event_data', False)
-        )
-        logger.debug(f"RunnerConfig: {runner_config.__dict__}")
-
-        runner_config.prepare()
-
-        runner = ansible_runner.Runner(config=runner_config, event_handler=event_handler)
-        ansible_command = ' '.join(runner.config.command)
-        logger.info(f"Runner: {ansible_command}")
-
         def _parse_progress(stdout_line: str):
             if not stdout_line:
                 return None
@@ -251,6 +228,29 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
                             job_storage.update_job_result(job_id, payload)
 
                 job_storage.append_job_event(job_id, event_payload)
+
+        runner_config = RunnerConfig(
+            private_data_dir=str(job_private_data_dir),
+            playbook=playbook_path,
+            inventory=inventory_path,
+            extravars=vars,
+            limit=limit,
+            verbosity=verbosity,
+            forks=forks,
+            tags=tags,
+            skip_tags=skip_tags,
+            cmdline=cmdline,
+            suppress_ansible_output=config.get('suppress_ansible_output', False),
+            omit_event_data=config.get('omit_event_data', False),
+            only_failed_event_data=config.get('only_failed_event_data', False)
+        )
+        logger.debug(f"RunnerConfig: {runner_config.__dict__}")
+
+        runner_config.prepare()
+
+        runner = ansible_runner.Runner(config=runner_config, event_handler=event_handler)
+        ansible_command = ' '.join(runner.config.command)
+        logger.info(f"Runner: {ansible_command}")
 
         result = runner.run()
 
