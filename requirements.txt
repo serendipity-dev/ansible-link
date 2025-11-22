@@ -1,6 +1,8 @@
 flask
 flask-restx
 ansible-runner
+ansible
+gunicorn
 werkzeug
 pyyaml
 pytest
