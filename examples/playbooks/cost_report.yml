@@ -19,7 +19,7 @@
 
   tasks:
     - ansible.builtin.debug:
-        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Report costi\""
+        msg: '[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label="Report costi"'
 
     - ansible.builtin.set_fact: { _issued_weight: 0 }
 
@@ -79,7 +79,7 @@
           }}
 
     - ansible.builtin.debug:
-        msg: "[AL_PROGRESS done] label=\"Report calcolato\""
+        msg: '[AL_PROGRESS done] label="Report calcolato"'
 
     - ansible.builtin.set_stats:
         data:
