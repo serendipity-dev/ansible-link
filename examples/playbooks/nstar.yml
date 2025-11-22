@@ -19,7 +19,7 @@
 
   tasks:
     - ansible.builtin.debug:
-        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Provisioning Nstar per {{ tenant }}\""
+        msg: '[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label="Provisioning Nstar per {{ tenant }}"'
 
     - ansible.builtin.set_fact: { _issued_weight: 0 }
 
@@ -52,7 +52,7 @@
         _admin_pass: "Adm-{{ 9999 | random }}"
 
     - ansible.builtin.debug:
-        msg: "[AL_PROGRESS done] label=\"Nstar pronto\""
+        msg: '[AL_PROGRESS done] label="Nstar pronto"'
 
     - ansible.builtin.set_stats:
         data:
