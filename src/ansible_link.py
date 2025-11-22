@@ -10,8 +10,10 @@ import os
 import re
 import uuid
 import yaml
+import json
 import base64
 import logging
+import shlex
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -161,6 +163,7 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
     })
 
     try:
+        job_storage.update_job_status(job_id, 'running')
         job_private_data_dir = job_storage_dir / job_id
         job_private_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -186,16 +189,79 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
         runner = ansible_runner.Runner(config=runner_config)
         ansible_command = ' '.join(runner.config.command)
         logger.info(f"Runner: {ansible_command}")
-        result = runner.run()
+
+        def _parse_progress(stdout_line: str):
+            if not stdout_line:
+                return None
+            marker_match = re.match(r"\[AL_PROGRESS (?P<phase>start|step|done|error)](?P<args>.*)", stdout_line.strip())
+            if not marker_match:
+                return None
+
+            progress = {
+                'phase': marker_match.group('phase'),
+            }
+            args_section = marker_match.group('args').strip()
+            for token in shlex.split(args_section):
+                if '=' not in token:
+                    continue
+                key, value = token.split('=', 1)
+                if isinstance(value, str) and value.isdigit():
+                    value = int(value)
+                elif isinstance(value, str) and (value.startswith('{') or value.startswith('[')):
+                    try:
+                        value = json.loads(value)
+                    except json.JSONDecodeError:
+                        pass
+                progress[key] = value
+            return progress
+
+        def event_handler(event_data):
+            if not event_data:
+                return
+            stdout_line = event_data.get('stdout')
+            if stdout_line:
+                progress_payload = _parse_progress(stdout_line)
+                event_payload = {
+                    'timestamp': event_data.get('created') or datetime.now().isoformat(),
+                    'event': event_data.get('event'),
+                    'counter': event_data.get('counter'),
+                    'stdout': stdout_line,
+                    'uuid': event_data.get('uuid')
+                }
+
+                if progress_payload:
+                    event_payload['progress'] = progress_payload
+                    job_storage.update_job_progress(
+                        job_id,
+                        phase=progress_payload.get('phase'),
+                        label=progress_payload.get('label'),
+                        expected_total=progress_payload.get('expected_total'),
+                        expected_weight=progress_payload.get('expected_weight'),
+                        step_weight=progress_payload.get('weight')
+                    )
+
+                if event_data.get('event') == 'set_stats':
+                    stats_result = event_data.get('event_data', {}).get('res', {})
+                    if isinstance(stats_result, dict):
+                        payload = stats_result.get('ansible_facts', {}).get('ansible_stats', {}).get('data')
+                        payload = payload if payload is not None else stats_result.get('ansible_stats', {}).get('data')
+                        payload = payload if payload is not None else stats_result.get('data')
+                        if payload is not None:
+                            job_storage.update_job_result(job_id, payload)
+
+                job_storage.append_job_event(job_id, event_payload)
+
+        result = runner.run(event_handler=event_handler)
 
         logger.debug(f"Runner result: {result}")
 
         status = 'completed' if runner.status == 'successful' else 'failed'
 
         job_storage.update_job_status(job_id, status)
-        job_storage.save_job_output(job_id, 
-                                    runner.stdout.read(), 
-                                    runner.stderr.read(), 
+        job_storage.update_job_progress(job_id, 'done' if status == 'completed' else 'error')
+        job_storage.save_job_output(job_id,
+                                    runner.stdout.read(),
+                                    runner.stderr.read(),
                                     runner.stats,
                                     ansible_command)
 
@@ -212,6 +278,7 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
     except Exception as e:
         logger.error(f"Error in job {job_id}: {str(e)}")
         job_storage.update_job_status(job_id, 'error')
+        job_storage.update_job_progress(job_id, 'error')
         job_storage.save_job_output(job_id, '', str(e), {})
 
         PLAYBOOK_RUNS.labels(playbook=playbook_path, status='error').inc()
@@ -253,6 +320,16 @@ class AnsiblePlaybook(Resource):
                 'skip_tags': data.get('skip_tags'),
                 'cmdline': data.get('cmdline'),
                 'start_time': datetime.now().isoformat(),
+                'events': [],
+                'result': None,
+                'progress': {
+                    'phase': 'pending',
+                    'completed_steps': 0,
+                    'expected_total_steps': None,
+                    'label': None,
+                    'completed_weight': 0,
+                    'expected_weight_total': None,
+                },
             }
             job_storage.save_job(job_id, job_data)
 
@@ -289,6 +366,63 @@ class Job(Resource):
             logger.warning(f"Job {job_id} not found")
             api.abort(404, f"Job {job_id} not found")
         return job
+@ns.route('/job/<string:job_id>/output')
+@ns.param('job_id', 'The job identifier')
+class JobOutput(Resource):
+    def get(self, job_id):
+        job = job_storage.get_job(job_id)
+        if job is None:
+            logger.warning(f"Job {job_id} not found")
+            api.abort(404, f"Job {job_id} not found")
+
+        events = job.get('events', [])
+        stdout_lines = [event.get('stdout') for event in events if event.get('stdout')]
+        stdout_output = '\n'.join(stdout_lines) if stdout_lines else job.get('stdout', '')
+
+        return {
+            'job_id': job_id,
+            'status': job.get('status'),
+            'stdout': stdout_output,
+            'stderr': job.get('stderr', ''),
+            'events': events,
+            'progress': job.get('progress'),
+            'result': job.get('result'),
+        }
+
+
+@ns.route('/job/<string:job_id>/progress')
+@ns.param('job_id', 'The job identifier')
+class JobProgress(Resource):
+    def get(self, job_id):
+        job = job_storage.get_job(job_id)
+        if job is None:
+            logger.warning(f"Job {job_id} not found")
+            api.abort(404, f"Job {job_id} not found")
+
+        events = job.get('events', [])
+        progress_events = [event for event in events if event.get('progress')]
+
+        return {
+            'job_id': job_id,
+            'status': job.get('status'),
+            'progress': job.get('progress'),
+            'progress_events': progress_events,
+        }
+
+@ns.route('/job/<string:job_id>/result')
+@ns.param('job_id', 'The job identifier')
+class JobResult(Resource):
+    def get(self, job_id):
+        job = job_storage.get_job(job_id)
+        if job is None:
+            logger.warning(f"Job {job_id} not found")
+            api.abort(404, f"Job {job_id} not found")
+
+        return {
+            'job_id': job_id,
+            'status': job.get('status'),
+            'result': job.get('result'),
+        }
 
 @ns.route('/available-playbooks')
 class AvailablePlaybooks(Resource):
