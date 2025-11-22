@@ -180,7 +180,13 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
                     'phase': marker_match.group('phase'),
                 }
                 args_section = marker_match.group('args').strip()
-                for token in shlex.split(args_section):
+                try:
+                    tokens = shlex.split(args_section)
+                except ValueError as err:
+                    logger.warning(f"Unable to parse progress line '{line}': {err}")
+                    return None
+
+                for token in tokens:
                     if '=' not in token:
                         continue
                     key, value = token.split('=', 1)
