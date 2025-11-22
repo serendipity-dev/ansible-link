@@ -1,0 +1,80 @@
+---
+- name: Bootstrap Tenant (mock con progress e pesi percentuali)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    tenant_name: "demo-tenant"
+
+    _total_weight: 2200            # totale specifico per questo job
+    min_wait: 5
+    max_wait: 12
+
+    # 4 step: 10% + 25% + 35% + 30% = 100%
+    steps:
+      - { name: "Allocazione risorse iniziali",     p: 10 }
+      - { name: "Configurazione networking",        p: 25 }
+      - { name: "Provisioning servizi automazione", p: 35 }
+      - { name: "Registrazione endpoint",           p: 30 }
+
+  tasks:
+    - name: Segnala inizio progresso
+      ansible.builtin.debug:
+        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Bootstrap tenant {{ tenant_name }}\""
+
+    - name: Inizializza accumulatore peso emesso
+      ansible.builtin.set_fact:
+        _issued_weight: 0
+
+    - name: Esegui fasi bootstrap con attese e pesi
+      loop: "{{ steps }}"
+      loop_control:
+        label: "{{ item.name }}"
+        index_var: idx
+      block:
+        - name: Fase corrente
+          ansible.builtin.debug:
+            msg: "➡️  {{ item.name }}"
+
+        - name: Attesa realistica
+          ansible.builtin.pause:
+            seconds: "{{ (range(min_wait, max_wait + 1) | random) | int }}"
+
+        - name: Calcola peso per step (correggi ultimo per sommare al totale)
+          ansible.builtin.set_fact:
+            _step_weight_pre: "{{ ((item.p * _total_weight) / 100.0) | float | round(0, 'floor') | int }}"
+            _is_last: "{{ idx == (steps|length - 1) }}"
+            _step_weight: >-
+              {{
+                (_is_last | ternary(
+                  (_total_weight - _issued_weight),
+                  _step_weight_pre
+                )) | int
+              }}
+
+        - name: Emissione progresso step
+          ansible.builtin.debug:
+            msg: "[AL_PROGRESS step] weight={{ _step_weight }} label=\"{{ item.name }}\""
+
+        - name: Aggiorna accumulatore
+          ansible.builtin.set_fact:
+            _issued_weight: "{{ (_issued_weight | int) + (_step_weight | int) }}"
+
+    - name: Completato
+      ansible.builtin.debug:
+        msg: "[AL_PROGRESS done] label=\"Bootstrap completato\""
+
+    - name: Artifacts finali
+      ansible.builtin.set_fact:
+        _tenant_id: "{{ tenant_name | lower | regex_replace('[^a-z0-9-]', '-') }}-{{ 99999 | random }}"
+
+    - name: Pubblica artifacts
+      ansible.builtin.set_stats:
+        data:
+          tenant:
+            id: "{{ _tenant_id }}"
+          automations:
+            urls:
+              iaas: "https://api.example.local/iaas"
+              paas: "https://api.example.local/paas"
+              saas: "https://api.example.local/saas"
+        per_host: false
