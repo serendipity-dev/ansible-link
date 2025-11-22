@@ -24,7 +24,7 @@
   tasks:
     - name: Inizio progresso
       ansible.builtin.debug:
-        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Provisioning VPS {{ hostname }}\""
+        msg: '[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label="Provisioning VPS {{ hostname }}"'
 
     - name: Inizializza accumulatore
       ansible.builtin.set_fact: { _issued_weight: 0 }
@@ -60,7 +60,7 @@
         _admin_pass: "P@ss-{{ 9999 | random }}"
 
     - ansible.builtin.debug:
-        msg: "[AL_PROGRESS done] label=\"VPS pronto\""
+        msg: '[AL_PROGRESS done] label="VPS pronto"'
 
     - name: Artifacts finali
       ansible.builtin.set_stats:
