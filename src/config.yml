@@ -12,7 +12,7 @@
 #   timeout: 5  # optional, default 5 seconds
 
 # flask
-host: '127.0.0.1'
+host: 0.0.0.0
 port: 5001
 debug: false
 
@@ -25,9 +25,9 @@ only_failed_event_data: false
 metrics_port: 9090
 
 # general
-playbook_dir: '/etc/ansible/'
-inventory_file: '/etc/ansible/environments/hosts'
-job_storage_dir: '/var/lib/ansible-link/job-storage'
+playbook_dir: '../examples/playbooks'
+inventory_file: '../examples/inventory/hosts'
+job_storage_dir: '../job-storage'
 log_level: 'INFO'
 
 # ansible-link
