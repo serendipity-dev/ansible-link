@@ -1,0 +1,80 @@
+---
+- name: Report costi Tenant (mock con progress e pesi)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    start: "2025-01-01T00:00:00Z"
+    end:   "2025-01-31T23:59:59Z"
+    resources: ["vps","k8s","nstar"]
+
+    _total_weight: 900             # totale specifico per reporting
+    min_wait: 3
+    max_wait: 6
+
+    # 3 step: 50% + 30% + 20%
+    steps:
+      - { name: "Query dati di consumo",         p: 50 }
+      - { name: "Aggregazione e calcolo totali", p: 30 }
+      - { name: "Preparazione risultati",        p: 20 }
+
+  tasks:
+    - ansible.builtin.debug:
+        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Report costi\""
+
+    - ansible.builtin.set_fact: { _issued_weight: 0 }
+
+    - name: Fasi report
+      loop: "{{ steps }}"
+      loop_control: { label: "{{ item.name }}", index_var: idx }
+      block:
+        - ansible.builtin.debug: { msg: "➡️  {{ item.name }}" }
+        - ansible.builtin.pause: { seconds: "{{ (range(min_wait, max_wait + 1) | random) | int }}" }
+        - ansible.builtin.set_fact:
+            _step_weight_pre: "{{ ((item.p * _total_weight) / 100.0) | float | round(0, 'floor') | int }}"
+            _is_last: "{{ idx == (steps|length - 1) }}"
+            _step_weight: "{{ (_is_last | ternary((_total_weight - _issued_weight), _step_weight_pre)) | int }}"
+        - ansible.builtin.debug:
+            msg: "[AL_PROGRESS step] weight={{ _step_weight }} label=\"{{ item.name }}\""
+        - ansible.builtin.set_fact:
+            _issued_weight: "{{ (_issued_weight | int) + (_step_weight | int) }}"
+
+    - name: Dataset fittizio
+      ansible.builtin.set_fact:
+        _all_items:
+          - { name: "vps-01",    type: "vps",   unit: "h",   usage: 120,   cost: 12.34 }
+          - { name: "vps-02",    type: "vps",   unit: "h",   usage: 80,    cost:  7.50 }
+          - { name: "k8s-dev",   type: "k8s",   unit: "h",   usage: 240,   cost: 55.20 }
+          - { name: "nstar-01",  type: "nstar", unit: "req", usage: 12000, cost:  9.99 }
+
+    - name: Applica filtro risorse (se presente)
+      ansible.builtin.set_fact:
+        _items: >-
+          {{ (resources | default([])) | length > 0
+              | ternary(
+                  _all_items | selectattr('type','in', resources) | list,
+                  _all_items
+                )
+          }}
+
+    - name: Totali
+      ansible.builtin.set_fact:
+        _total: "{{ (_items | sum(attribute='cost')) | float | round(2) }}"
+        _by_category: >-
+          {{
+            dict( (_items | map(attribute='type') | unique | list)
+                  | zip( (_items | groupby('type')
+                           | map('last') | map('map', attribute='cost')
+                           | map('list') | map('sum') | list) )
+               )
+          }}
+
+    - ansible.builtin.debug:
+        msg: "[AL_PROGRESS done] label=\"Report calcolato\""
+
+    - ansible.builtin.set_stats:
+        data:
+          summary:
+            total: "{{ _total }}"
+            byCategory: "{{ _by_category | items2dict }}"
+          items: "{{ _items }}"
+        per_host: false
