@@ -115,6 +115,16 @@ Suggested events for a task with 3 steps:
 
 If a fatal condition occurs, emit `[AL_PROGRESS error] label="reason"` before failing the task to update the tracked phase.
 
+### Playbook di esempio
+Nella cartella `examples/playbooks` sono disponibili playbook dimostrativi che emettono marker di avanzamento e restituiscono un risultato strutturato tramite `set_stats`:
+
+- `bootstrap_tenant.yml`: bootstrap di un tenant con pesi percentuali e pubblicazione degli endpoint di automazione.
+- `vps.yml`: provisioning di una VPS con step ponderati e credenziali di amministrazione generate al termine.
+- `k8s.yml`: creazione di un cluster Kubernetes/OpenShift con kubeconfig fittizia come artifact finale.
+- `nstar.yml`: provisioning applicativo con creazione schema tenant e credenziali admin.
+- `cost_report.yml`: generazione di un report costi con filtri opzionali e breakdown per categoria.
+
+
 ## Configuration
 The API configuration is stored in the `config.yml` file. 
 If you move your config to a different location you can use `ANSIBLE_LINK_CONFIG_PATH` 
