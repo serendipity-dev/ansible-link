@@ -20,7 +20,7 @@ from pathlib import Path
 
 import ansible_runner
 from ansible_runner.config.runner import RunnerConfig
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_restx import Api, Resource, fields
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 
@@ -49,7 +49,8 @@ playbook_model = api.model('PlaybookRequest', {
     'limit': fields.String(description='Limit the playbook run to specific hosts or groups (e.g., "webservers,dbservers")'),
     'tags': fields.String(description='Comma-separated string of tags to run in the playbook (e.g., "tag1,tag2")'),
     'skip_tags': fields.String(description='Comma-separated string of tags to skip in the playbook (e.g., "tag3,tag4")'),
-    'cmdline': fields.String(description='Custom command-line arguments for Ansible')
+    'cmdline': fields.String(description='Custom command-line arguments for Ansible'),
+    'job_tag': fields.String(description='Application-level tag to group jobs. Not forwarded to Ansible.'),
 })
 
 job_model = api.model('JobResponse', {
@@ -146,6 +147,12 @@ def validate_playbook_request(data, config):
                 for tag in tags:
                     if not re.match(r'^[a-zA-Z0-9_]+$', tag.strip()):
                         errors.append(f"Invalid tag in '{tag_field}': {tag}")
+
+    if 'job_tag' in data:
+        if not isinstance(data['job_tag'], str):
+            errors.append("'job_tag' must be a string")
+        elif not re.match(r'^[a-zA-Z0-9_-]+$', data['job_tag']):
+            errors.append("'job_tag' contains invalid characters. Use letters, numbers, underscores, or hyphens.")
 
     if 'cmdline' in data and not isinstance(data['cmdline'], str):
         errors.append("'cmdline' must be a string")
@@ -360,6 +367,7 @@ class AnsiblePlaybook(Resource):
                 'tags': data.get('tags'),
                 'skip_tags': data.get('skip_tags'),
                 'cmdline': data.get('cmdline'),
+                'job_tag': data.get('job_tag'),
                 'start_time': datetime.now().isoformat(),
                 'events': [],
                 'result': None,
@@ -396,7 +404,20 @@ class AnsiblePlaybook(Resource):
 @ns.route('/jobs')
 class JobList(Resource):
     def get(self):
-        return {job_id: {'status': job['status'], 'playbook': job['playbook']} for job_id, job in job_storage.get_all_jobs().items()}
+        tag_filter = request.args.get('tag')
+        jobs = job_storage.get_all_jobs()
+        filtered_jobs = {}
+
+        for job_id, job in jobs.items():
+            if tag_filter and job.get('job_tag') != tag_filter:
+                continue
+            filtered_jobs[job_id] = {
+                'status': job['status'],
+                'playbook': job['playbook'],
+                'job_tag': job.get('job_tag'),
+            }
+
+        return filtered_jobs
 
 @ns.route('/job/<string:job_id>')
 @ns.param('job_id', 'The job identifier')
