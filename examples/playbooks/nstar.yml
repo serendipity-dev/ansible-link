@@ -1,0 +1,56 @@
+---
+- name: Provisioning Nstar (mock con progress e pesi)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    tenant: "demo-tenant"
+    app_size: "small"
+
+    _total_weight: 1400            # totale specifico per Nstar
+    min_wait: 5
+    max_wait: 10
+
+    # 4 step: 20% + 35% + 25% + 20%
+    steps:
+      - { name: "Creazione schema tenant",  p: 20 }
+      - { name: "Bootstrap dati di base",   p: 35 }
+      - { name: "Abilitazione endpoint",    p: 25 }
+      - { name: "Creazione utente admin",   p: 20 }
+
+  tasks:
+    - ansible.builtin.debug:
+        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Provisioning Nstar per {{ tenant }}\""
+
+    - ansible.builtin.set_fact: { _issued_weight: 0 }
+
+    - name: Fasi Nstar
+      loop: "{{ steps }}"
+      loop_control: { label: "{{ item.name }}", index_var: idx }
+      block:
+        - ansible.builtin.debug: { msg: "➡️  {{ item.name }}" }
+        - ansible.builtin.pause: { seconds: "{{ (range(min_wait, max_wait + 1) | random) | int }}" }
+        - ansible.builtin.set_fact:
+            _step_weight_pre: "{{ ((item.p * _total_weight) / 100.0) | float | round(0, 'floor') | int }}"
+            _is_last: "{{ idx == (steps|length - 1) }}"
+            _step_weight: "{{ (_is_last | ternary((_total_weight - _issued_weight), _step_weight_pre)) | int }}"
+        - ansible.builtin.debug:
+            msg: "[AL_PROGRESS step] weight={{ _step_weight }} label=\"{{ item.name }}\""
+        - ansible.builtin.set_fact:
+            _issued_weight: "{{ (_issued_weight | int) + (_step_weight | int) }}"
+
+    - ansible.builtin.set_fact:
+        _admin_user: "admin@{{ tenant }}.example.local"
+        _admin_pass: "Adm-{{ 9999 | random }}"
+
+    - ansible.builtin.debug:
+        msg: "[AL_PROGRESS done] label=\"Nstar pronto\""
+
+    - ansible.builtin.set_stats:
+        data:
+          nstar:
+            url: "https://nstar.example.local/{{ tenant }}"
+          tenant: "{{ tenant }}"
+          admin:
+            user: "{{ _admin_user }}"
+            password: "{{ _admin_pass }}"
+        per_host: false
