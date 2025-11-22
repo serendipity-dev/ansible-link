@@ -54,10 +54,39 @@ playbook_dir: '/etc/ansible/'
 inventory_file: '/etc/ansible/environments/hosts'
 ...
 ```
-
 To add more workers or change the user, modify `/etc/systemd/system/ansible-link.service`
-> ⚠️ **Note:** Currently, only Ubuntu versions 16.04 and higher, or Debian versions 9 and higher are officially supported. 
+> ⚠️ **Note:** Currently, only Ubuntu versions 16.04 and higher, or Debian versions 9 and higher are officially supported.
 > Other operating systems might also work but have not been tested. You can clone the repository and perform a manual installation if you are using a different OS.
+
+## Esecuzione con Docker
+Il progetto include un container pronto all'uso che ha al suo interno tutte le dipendenze (incluso Ansible) e i playbook di esempio.
+
+### Build dell'immagine
+```bash
+docker build -t ansible-link .
+```
+
+### Avvio con Docker
+```bash
+docker run --rm \
+  -p 5001:5001 \
+  -p 9090:9090 \
+  ansible-link
+```
+
+### Avvio con Docker Compose
+```bash
+docker compose up --build
+```
+
+### Verifica esecuzione API e playbook di esempio
+L'API espone la documentazione Swagger su `http://localhost:5001/api/v2/`. Per avviare un playbook di esempio già presente nel container, puoi usare:
+```bash
+curl -X POST http://localhost:5001/api/v2/ansible/playbook \
+  -H "Content-Type: application/json" \
+  -d '{"playbook": "bootstrap_tenant.yml", "inventory": "/app/examples/inventory/hosts"}'
+```
+Il container monta automaticamente una cartella persistente per lo `job_storage` tramite un volume nominato nel file `docker-compose.yml`.
 
 ## API Documentation
 The API documentation is available via the Swagger UI.
