@@ -130,14 +130,14 @@ Esempi di payload reali (uno per ciascun playbook):
 curl -X POST "$BASE_URL/playbook" \
   -H "Content-Type: application/json" \
   -d '{
-        "playbook": "playbooks/bootstrap_tenant.yml",
+        "playbook": "bootstrap_tenant.yml",
         "vars": { "tenant_name": "acme-app" }
       }'
 
 curl -X POST "$BASE_URL/playbook" \
   -H "Content-Type: application/json" \
   -d '{
-        "playbook": "playbooks/cost_report.yml",
+        "playbook": "cost_report.yml",
         "vars": {
           "start": "2025-02-01T00:00:00Z",
           "end": "2025-02-28T23:59:59Z",
@@ -148,7 +148,7 @@ curl -X POST "$BASE_URL/playbook" \
 curl -X POST "$BASE_URL/playbook" \
   -H "Content-Type: application/json" \
   -d '{
-        "playbook": "playbooks/vps.yml",
+        "playbook": "vps.yml",
         "vars": {
           "hostname": "app-01",
           "cpu": 4,
@@ -161,14 +161,14 @@ curl -X POST "$BASE_URL/playbook" \
 curl -X POST "$BASE_URL/playbook" \
   -H "Content-Type: application/json" \
   -d '{
-        "playbook": "playbooks/nstar.yml",
+        "playbook": "nstar.yml",
         "vars": { "tenant": "finance", "app_size": "medium" }
       }'
 
 curl -X POST "$BASE_URL/playbook" \
   -H "Content-Type: application/json" \
   -d '{
-        "playbook": "playbooks/k8s.yml",
+        "playbook": "k8s.yml",
         "vars": {
           "cluster_name": "lab-cluster",
           "version": "1.29",
