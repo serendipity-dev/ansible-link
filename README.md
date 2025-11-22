@@ -19,6 +19,7 @@
 - **Playbook Execution** Asynchronous playbook executions with real-time status updates.
 - **Playbook History** Keep track of playbook executions and their status.
 - **Playbook History** Keep track of playbook executions and their status, including incremental progress logs captured from ansible-runner callbacks.
+- **Job tagging** Group jobs with an optional application-level `job_tag` to categorize runs and filter listings without forwarding the tag to Ansible.
 - **API Documentation** Swagger UI documentation for easy exploration of the API endpoints.
 - **Metrics** Exposes Prometheus metrics for playbook runs, durations, and active jobs.
 - **Webhook Notifications** Send notifications to Slack, Discord, or custom webhooks for job events.
@@ -95,14 +96,29 @@ The API documentation is available via the Swagger UI.
 
 ## API Endpoints
 
-* <code>POST /ansible/playbook: Execute a playbook</code>
-* <code>GET /ansible/jobs: List all jobs</code>
+* <code>POST /ansible/playbook: Execute a playbook (optional `job_tag` groups jobs; tag is not forwarded to Ansible)</code>
+* <code>GET /ansible/jobs: List all jobs (supports filtering via `?tag=<job_tag>`)</code>
 * <code>GET /ansible/job/<job_id>: Get job status</code>
 * <code>GET /ansible/job/<job_id>/output: Get job output</code>
 * <code>GET /ansible/job/<job_id>/output: Get combined live output, progress events, and any structured <code>result</code> emitted via set_stats at completion</code>
 * <code>GET /ansible/job/<job_id>/progress: Retrieve only the tracked progress snapshot and the filtered progress events</code>
 * <code>GET /ansible/job/<job_id>/result: Retrieve only the final structured result captured via <code>set_stats</code></code>
 * <code>GET /health: Health check endpoint</code>
+
+### Job tagging and filtered listings
+- Pass an optional `job_tag` attribute in `POST /ansible/playbook` to associare il job a una categoria applicativa senza inoltrare il valore ad Ansible.
+- Recupera solo i job marcati con un determinato tag usando `GET /ansible/jobs?tag=<job_tag>`.
+- Esempio di payload con tag:
+  ```bash
+  curl -X POST "$BASE_URL/playbook" \
+    -H "Content-Type: application/json" \
+    -d '{
+          "playbook": "vps.yml",
+          "inventory": "examples/inventory/hosts",
+          "vars": { "hostname": "app-01" },
+          "job_tag": "demo"
+        }'
+  ```
 
 ### Standard progress markers for roles
 To avoid mixing noise with progress updates, Ansible-Link filters structured progress events emitted on stdout.
