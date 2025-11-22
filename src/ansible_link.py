@@ -179,17 +179,22 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
                 progress = {
                     'phase': marker_match.group('phase'),
                 }
+
                 args_section = marker_match.group('args').strip()
+                cleaned_args = args_section.replace(r'\"', '"').replace(r"\'", "'")
+                if cleaned_args.count('"') % 2 != 0:
+                    cleaned_args = cleaned_args.rstrip('"')
+
+                key_values = []
                 try:
-                    tokens = shlex.split(args_section)
+                    tokens = shlex.split(cleaned_args)
+                    key_values = [token.split('=', 1) for token in tokens if '=' in token]
                 except ValueError as err:
                     logger.warning(f"Unable to parse progress line '{line}': {err}")
                     return None
-
-                for token in tokens:
-                    if '=' not in token:
-                        continue
-                    key, value = token.split('=', 1)
+                for key, value in key_values:
+                    if isinstance(value, str) and len(value) >= 2 and ((value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'"))):
+                        value = value[1:-1]
                     if isinstance(value, str) and value.isdigit():
                         value = int(value)
                     elif isinstance(value, str) and (value.startswith('{') or value.startswith('[')):
@@ -222,32 +227,46 @@ def run_playbook(job_id, playbook_path, inventory_path, vars, forks=5, verbosity
         def event_handler(event_data):
             if not event_data:
                 return
+
+            stdout_segments = []
             stdout_line = event_data.get('stdout')
             if stdout_line:
-                progress_payload = _parse_progress(stdout_line)
-                event_payload = {
-                    'timestamp': event_data.get('created') or datetime.now().isoformat(),
-                    'event': event_data.get('event'),
-                    'counter': event_data.get('counter'),
-                    'stdout': stdout_line,
-                    'uuid': event_data.get('uuid')
-                }
+                stdout_segments.append(stdout_line)
 
-                if progress_payload:
-                    event_payload['progress'] = progress_payload
-                    job_storage.update_job_progress(
-                        job_id,
-                        phase=progress_payload.get('phase'),
-                        label=progress_payload.get('label'),
-                        expected_total=progress_payload.get('expected_total'),
-                        expected_weight=progress_payload.get('expected_weight'),
-                        step_weight=progress_payload.get('weight')
-                    )
+            res_block = event_data.get('event_data', {}).get('res') if event_data else None
+            if isinstance(res_block, dict):
+                if res_block.get('stdout'):
+                    stdout_segments.append(res_block.get('stdout'))
+                if isinstance(res_block.get('stdout_lines'), list):
+                    stdout_segments.extend([line for line in res_block.get('stdout_lines') if line])
 
-                stats_payload = _extract_stats_payload(event_data)
-                if stats_payload is not None:
-                    job_storage.update_job_result(job_id, stats_payload)
+            stdout_payload = '\n'.join(stdout_segments) if stdout_segments else stdout_line
+            progress_payload = _parse_progress(stdout_payload) if stdout_segments else None
 
+            event_payload = {
+                'timestamp': event_data.get('created') or datetime.now().isoformat(),
+                'event': event_data.get('event'),
+                'counter': event_data.get('counter'),
+                'stdout': stdout_payload,
+                'uuid': event_data.get('uuid')
+            }
+
+            if progress_payload:
+                event_payload['progress'] = progress_payload
+                job_storage.update_job_progress(
+                    job_id,
+                    phase=progress_payload.get('phase'),
+                    label=progress_payload.get('label'),
+                    expected_total=progress_payload.get('expected_total'),
+                    expected_weight=progress_payload.get('expected_weight'),
+                    step_weight=progress_payload.get('weight')
+                )
+
+            stats_payload = _extract_stats_payload(event_data)
+            if stats_payload is not None:
+                job_storage.update_job_result(job_id, stats_payload)
+
+            if stdout_payload or progress_payload or stats_payload is not None:
                 job_storage.append_job_event(job_id, event_payload)
 
         runner_config = RunnerConfig(
