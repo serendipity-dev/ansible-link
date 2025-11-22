@@ -26,21 +26,30 @@
 
     - ansible.builtin.set_fact: { _issued_weight: 0 }
 
-    - name: Fasi cluster
+    - name: Calcola pesi e attese per le fasi
+      ansible.builtin.set_fact:
+        _steps_expanded: "{{ (_steps_expanded | default([])) + [ {'name': item.name, 'weight': _step_weight, 'wait': _step_wait, 'idx': idx} ] }}"
+        _issued_weight: "{{ _issued_weight + _step_weight }}"
       loop: "{{ steps }}"
-      loop_control: { label: "{{ item.name }}", index_var: idx }
-      block:
-        - ansible.builtin.debug: { msg: "➡️  {{ item.name }}" }
-        - ansible.builtin.pause: { seconds: "{{ (range(min_wait, max_wait + 1) | random) | int }}" }
-        - ansible.builtin.set_fact:
-            _step_weight_pre: "{{ ((item.p * _total_weight) / 100.0) | float | round(0, 'floor') | int }}"
-            _is_last: "{{ idx == (steps|length - 1) }}"
-            _step_weight: "{{ (_is_last | ternary((_total_weight - _issued_weight), _step_weight_pre)) | int }}"
-        - ansible.builtin.debug:
-            msg: "[AL_PROGRESS step] weight={{ _step_weight }} label=\"{{ item.name }}\""
-        - ansible.builtin.set_fact:
-            _issued_weight: "{{ (_issued_weight | int) + (_step_weight | int) }}"
+      loop_control:
+        label: "{{ item.name }}"
+        index_var: idx
+      vars:
+        _step_wait: "{{ (range(min_wait, max_wait + 1) | random) | int }}"
+        _step_weight_pre: "{{ ((item.p * _total_weight) / 100.0) | float | round(0, 'floor') | int }}"
+        _step_weight: "{{ (idx == (steps|length - 1)) | ternary(_total_weight - _issued_weight, _step_weight_pre) | int }}"
 
+    - name: Fasi cluster con progresso
+      ansible.builtin.shell: |
+        echo "➡️  {{ item.name }}"
+        sleep {{ item.wait }}
+        echo "[AL_PROGRESS step] weight={{ item.weight }} label=\"{{ item.name }}\""
+      args:
+        executable: /bin/sh
+      loop: "{{ _steps_expanded | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+        
     - name: Kubeconfig fittizia
       ansible.builtin.set_fact:
         _api_url: "https://api.{{ cluster_name }}.example.local:6443"
