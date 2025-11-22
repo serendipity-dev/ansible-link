@@ -1,0 +1,77 @@
+---
+- name: Provisioning Cluster Kubernetes/OpenShift (mock con progress e pesi)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    cluster_name: "k8s-demo"
+    version: "1.29"
+    workers: 3
+    worker_flavor: "small"
+
+    _total_weight: 3600            # totale specifico per K8s/OpenShift
+    min_wait: 5
+    max_wait: 12
+
+    # 5 step: 25% + 40% + 10% + 15% + 10%
+    steps:
+      - { name: "Provisioning control-plane", p: 25 }
+      - { name: "Provisioning worker nodes",  p: 40 }
+      - { name: "Configurazione rete/CNI",    p: 10 }
+      - { name: "Inizializzazione cluster",   p: 15 }
+      - { name: "Consegna kubeconfig",        p: 10 }
+
+  tasks:
+    - ansible.builtin.debug:
+        msg: "[AL_PROGRESS start] expected_total={{ steps|length }} expected_weight={{ _total_weight }} label=\"Cluster {{ cluster_name }}\""
+
+    - ansible.builtin.set_fact: { _issued_weight: 0 }
+
+    - name: Fasi cluster
+      loop: "{{ steps }}"
+      loop_control: { label: "{{ item.name }}", index_var: idx }
+      block:
+        - ansible.builtin.debug: { msg: "➡️  {{ item.name }}" }
+        - ansible.builtin.pause: { seconds: "{{ (range(min_wait, max_wait + 1) | random) | int }}" }
+        - ansible.builtin.set_fact:
+            _step_weight_pre: "{{ ((item.p * _total_weight) / 100.0) | float | round(0, 'floor') | int }}"
+            _is_last: "{{ idx == (steps|length - 1) }}"
+            _step_weight: "{{ (_is_last | ternary((_total_weight - _issued_weight), _step_weight_pre)) | int }}"
+        - ansible.builtin.debug:
+            msg: "[AL_PROGRESS step] weight={{ _step_weight }} label=\"{{ item.name }}\""
+        - ansible.builtin.set_fact:
+            _issued_weight: "{{ (_issued_weight | int) + (_step_weight | int) }}"
+
+    - name: Kubeconfig fittizia
+      ansible.builtin.set_fact:
+        _api_url: "https://api.{{ cluster_name }}.example.local:6443"
+        _kubeconfig: |
+          apiVersion: v1
+          clusters:
+          - cluster:
+              server: https://api.{{ cluster_name }}.example.local:6443
+            name: {{ cluster_name }}
+          contexts:
+          - context:
+              cluster: {{ cluster_name }}
+              user: admin
+            name: {{ cluster_name }}
+          current-context: {{ cluster_name }}
+          kind: Config
+          users:
+          - name: admin
+            user:
+              token: "sha256~{{ 999999999 | random }}"
+
+    - ansible.builtin.debug:
+        msg: "[AL_PROGRESS done] label=\"Cluster pronto\""
+
+    - ansible.builtin.set_stats:
+        data:
+          cluster:
+            name: "{{ cluster_name }}"
+            url: "{{ _api_url }}"
+          admin:
+            user: "admin"
+            password: "Admin-{{ 9999 | random }}"
+          kubeconfig: "{{ _kubeconfig }}"
+        per_host: false
